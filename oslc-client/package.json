@@ -1,0 +1,51 @@
+{
+  "name": "oslc-client",
+  "main": "./index.js",
+  "description": "OSLC4JS JavaScript OSLC Client",
+  "type": "module",
+  "version": "3.0.1",
+  "author": {
+    "name": "Jim Amsden",
+    "email": "jamsden@us.ibm.com"
+  },
+  "contributors": [
+    {
+      "name": "Neil Davis",
+      "email": "nbdavis@us.ibm.com"
+    }
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OSLC/oslc-client.git"
+  },
+  "homepage": "https://open-services.net/",
+  "keywords": [
+    "oslc",
+    "ldp",
+    "domain",
+    "web",
+    "rest",
+    "restful"
+  ],
+  "scripts": {
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "test:watch": "jest --watchAll",
+    "test:coverage": "jest --coverage"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverage": true,
+    "coverageDirectory": "coverage"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.8",
+    "axios": "^1.13.2",
+    "axios-cookiejar-support": "^6.0.4",
+    "rdflib": "2.3.0-08f819ce",
+    "tough-cookie": "^6.0.0"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
+  }
+}

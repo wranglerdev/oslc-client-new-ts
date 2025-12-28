@@ -1,0 +1,22 @@
+{
+  "name": "oslc-client-ts",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "axios-cookiejar-support": "^6.0.4",
+    "tough-cookie": "^6.0.0",
+    "rdflib": "2.3.0-08f819ce",
+    "@xmldom/xmldom": "^0.9.8",
+    "oslc-client": "^3.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
