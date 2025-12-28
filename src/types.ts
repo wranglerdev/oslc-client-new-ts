@@ -65,3 +65,20 @@ export interface PreviewInfo {
   hintHeight?: string;
   hintWidth?: string;
 }
+
+/**
+ * Atom feed response structure
+ */
+export type AtomFeed = unknown; // TODO: Define proper Atom feed structure when needed
+
+/**
+ * SPARQL query result binding
+ */
+export interface SPARQLBinding {
+  [key: string]: { value: string; type?: string };
+}
+
+/**
+ * SPARQL query results
+ */
+export type SPARQLResults = SPARQLBinding[];

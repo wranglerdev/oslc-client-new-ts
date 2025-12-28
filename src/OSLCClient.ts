@@ -2,25 +2,38 @@ import axios, {
   type AxiosInstance,
   type AxiosResponse,
   type InternalAxiosRequestConfig,
+  type CreateAxiosDefaults,
 } from "axios";
 import { sym } from "rdflib";
 import * as $rdf from "rdflib";
 import type { IndexedFormula } from "rdflib";
-import type { NamedNode } from "rdflib/lib/tf-types";
-import type { Document } from "@xmldom/xmldom";
+import type { NamedNode, Quad_Subject } from "rdflib/lib/tf-types";
+import type { Document, DOMParser as XMLDOMParser } from "@xmldom/xmldom";
+import type { CookieJar as ToughCookieJar, Cookie } from "tough-cookie";
+import type { wrapper as AxiosCookieJarWrapper } from "axios-cookiejar-support";
 import { rdfs, oslc, oslc_cm1, oslc_rm, oslc_qm1 } from "./namespaces.js";
 import OSLCResource from "./OSLCResource.js";
 import Compact from "./Compact.js";
 import RootServices from "./RootServices.js";
 import ServiceProviderCatalog from "./ServiceProviderCatalog.js";
 import ServiceProvider from "./ServiceProvider.js";
-import type { QueryParams } from "./types.js";
+import type { QueryParams, AtomFeed, SPARQLResults } from "./types.js";
 
 // Conditional imports for Node.js only
-let wrapper: any;
-let CookieJar: any;
-let DOMParser: any;
-const isNodeEnvironment = typeof (globalThis as any).window === "undefined";
+type BrowserDOMParser = {
+  new (): {
+    parseFromString(source: string, mimeType: string): Document;
+  };
+};
+let wrapper: typeof AxiosCookieJarWrapper | undefined;
+let CookieJar: typeof ToughCookieJar | undefined;
+let DOMParser: typeof XMLDOMParser | BrowserDOMParser;
+
+// Type-safe environment detection using interface augmentation
+interface ExtendedGlobal {
+  window?: { DOMParser: BrowserDOMParser };
+}
+const isNodeEnvironment = typeof (globalThis as unknown as ExtendedGlobal).window === "undefined";
 
 if (isNodeEnvironment) {
   // Node.js imports
@@ -32,7 +45,8 @@ if (isNodeEnvironment) {
   DOMParser = xmldom.DOMParser;
 } else {
   // Browser: use native DOMParser
-  DOMParser = (globalThis as any).window.DOMParser;
+  const globalWithWindow = globalThis as unknown as ExtendedGlobal;
+  DOMParser = globalWithWindow.window!.DOMParser;
 }
 
 // Service providers properties
@@ -56,7 +70,7 @@ export default class OSLCClient {
   private sp: ServiceProvider | null = null;
   private ownerMap: Map<string, string> = new Map();
   private isNodeEnvironment: boolean;
-  private jar?: any;
+  private jar?: InstanceType<typeof ToughCookieJar>;
   private client: AxiosInstance;
   private base_url?: string;
 
@@ -71,11 +85,11 @@ export default class OSLCClient {
     this.isNodeEnvironment = isNodeEnvironment;
 
     if (isNodeEnvironment) {
-      this.jar = new CookieJar();
+      this.jar = new CookieJar!();
     }
 
     // Create a base configuration
-    const baseConfig: any = {
+    const baseConfig: CreateAxiosDefaults & { jar?: InstanceType<typeof ToughCookieJar>; keepAlive?: boolean } = {
       timeout: 30000,
       headers: {
         Accept:
@@ -90,7 +104,7 @@ export default class OSLCClient {
       // Node.js: use a cookie jar and keep-alive
       baseConfig.keepAlive = true;
       baseConfig.jar = this.jar;
-      this.client = wrapper(axios.create(baseConfig));
+      this.client = wrapper!(axios.create(baseConfig));
     } else {
       // Browser: use withCredentials for automatic cookie handling
       baseConfig.withCredentials = true;
@@ -145,8 +159,9 @@ export default class OSLCClient {
           // After successful login, retry the original request with updated cookies
           response = await this.client.request(originalRequest);
           return response;
-        } catch (error: any) {
-          console.error("Error during JEE authentication:", error.message);
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("Error during JEE authentication:", message);
           return Promise.reject(error);
         }
       } else if (
@@ -178,20 +193,24 @@ export default class OSLCClient {
           const newToken = tokenResponse.data; // Refresh token
           originalRequest.headers["Authorization"] = `Bearer ${newToken}`;
           return await this.client.request(originalRequest); // Retry the request
-        } catch (error: any) {
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
           console.error(
             "Error during jauth realm authentication:",
-            error.message,
+            message,
           );
           return Promise.reject(error);
         }
       } else if (response.status === 401) {
         // Retry with basic authentication for e.g., Jazz Authorization Server
-        (originalRequest as any).auth = {
+        const requestWithAuth = originalRequest as InternalAxiosRequestConfig & {
+          auth?: { username: string; password: string };
+        };
+        requestWithAuth.auth = {
           username: this.userid,
           password: this.password,
         };
-        return await this.client.request(originalRequest);
+        return await this.client.request(requestWithAuth);
       } else {
         // No authentication challenge, proceed with the response
         return response;
@@ -277,7 +296,7 @@ export default class OSLCClient {
   ): Promise<
     | OSLCResource
     | { etag?: string; xml: Document }
-    | { etag?: string; feed: any }
+    | { etag?: string; feed: AtomFeed }
   > {
     const headers = {
       Accept: accept,
@@ -299,7 +318,7 @@ export default class OSLCClient {
       contentType.includes("text/xml") ||
       contentType.includes("application/xml")
     ) {
-      return { etag, xml: new DOMParser().parseFromString(response.data) };
+      return { etag, xml: new DOMParser().parseFromString(response.data, contentType) };
     } else if (contentType.includes("application/atom+xml")) {
       return { etag, feed: response.data };
     } else {
@@ -460,16 +479,17 @@ export default class OSLCClient {
       try {
         const cookies = this.jar.getCookiesSync(url);
         const sessionCookie = cookies.find(
-          (cookie: any) => cookie.key === "JSESSIONID",
+          (cookie: Cookie) => cookie.key === "JSESSIONID",
         );
         if (sessionCookie) {
           headers["X-Jazz-CSRF-Prevent"] = sessionCookie.value;
         }
-      } catch (error: any) {
+      } catch (error: unknown) {
         // If cookie retrieval fails, continue with default value
+        const message = error instanceof Error ? error.message : String(error);
         console.debug(
           "Could not retrieve JSESSIONID from cookie jar:",
-          error.message,
+          message,
         );
       }
     }
@@ -505,7 +525,7 @@ export default class OSLCClient {
     const members = kb.statementsMatching(null, rdfs("member"), null);
     for (const member of members) {
       const memberStatements = kb.statementsMatching(
-        member.object as any,
+        member.object as Quad_Subject,
         undefined,
         undefined,
       );
@@ -646,11 +666,11 @@ export default class OSLCClient {
                 ?qc oslc:queryBase ?qb .
             }`;
 
-    const results = (this.sp.store as any).querySync(query);
+    const results = (this.sp.store as any).querySync(query) as SPARQLResults;
     if (!results?.length) {
       throw new Error(`No query capability found for ${resourceType}`);
     }
-    return (results[0] as any).qb.value;
+    return results[0].qb.value;
   }
 
   /**
@@ -672,10 +692,10 @@ export default class OSLCClient {
                 ?cf oslc:creation ?cfurl .
             }`;
 
-    const results = await (this.sp.store as any).sparqlQuery(query);
+    const results = await (this.sp.store as any).sparqlQuery(query) as SPARQLResults;
     if (!results?.length) {
       throw new Error(`No creation factory found for ${resourceType}`);
     }
-    return (results[0] as any).cfurl.value;
+    return results[0].cfurl.value;
   }
 }
